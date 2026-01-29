@@ -20,8 +20,10 @@ from django.views.generic import TemplateView
 # Local imports
 from . import views
 
-# 
+# API endpoints
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.index, name='index'),
+    path('transcribe/', views.transcribe, name='transcribe'),
+    path('upload-to-sheet/', views.upload_to_sheet, name='upload_to_sheet'),
 ]

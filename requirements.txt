@@ -1,0 +1,6 @@
+Django==3.2.23
+google-cloud-speech==2.21.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.104.0
+python-dotenv==1.0.0

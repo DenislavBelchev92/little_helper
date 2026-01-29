@@ -3,9 +3,328 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Little Helper</title>
+    <title>Little Helper - Voice to Google Sheets</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        input[type="text"] {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        #recordBtn {
+            background: #667eea;
+            color: white;
+            grid-column: 1;
+        }
+        
+        #recordBtn:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        #recordBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        #recordBtn.recording {
+            background: #e74c3c;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+        }
+        
+        #submitBtn {
+            background: #27ae60;
+            color: white;
+            grid-column: 2;
+        }
+        
+        #submitBtn:hover:not(:disabled) {
+            background: #229954;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3);
+        }
+        
+        #submitBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            text-align: center;
+            min-height: 20px;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+        
+        .transcript {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            min-height: 60px;
+            max-height: 150px;
+            overflow-y: auto;
+            color: #333;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        
+        .transcript.empty {
+            color: #999;
+            font-style: italic;
+        }
+    </style>
 </head>
 <body>
-    <h1>Little Helper. Maria hello</h1>
+    <div class="container">
+        <h1>🎤 Little Helper</h1>
+        <p class="subtitle">Voice to Google Sheets</p>
+        
+        <div class="controls">
+            <div class="transcript empty" id="transcript">
+                Say something and it will appear here...
+            </div>
+            
+            <div class="button-group">
+                <button id="recordBtn">🎙️ Record</button>
+                <button id="submitBtn" disabled>📤 Submit</button>
+            </div>
+            
+            <div class="status" id="status"></div>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        const recordBtn = document.getElementById('recordBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const statusDiv = document.getElementById('status');
+        const transcriptDiv = document.getElementById('transcript');
+        
+        recordBtn.addEventListener('click', startRecording);
+        submitBtn.addEventListener('click', submitToSheet);
+        
+        console.log('Script loaded');
+        
+        async function startRecording() {
+            console.log('startRecording called, isRecording:', isRecording);
+            
+            if (!isRecording) {
+                try {
+                    console.log('Requesting microphone access...');
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    console.log('Microphone access granted');
+                    
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        console.log('Audio data available:', event.data.size);
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = handleRecordingStop;
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    recordBtn.classList.add('recording');
+                    recordBtn.textContent = '🛑 Stop';
+                    statusDiv.className = 'status info';
+                    statusDiv.textContent = 'Recording...';
+                    console.log('Recording started');
+                } catch (error) {
+                    console.error('Microphone error:', error);
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = 'Microphone access denied. Please allow access. Error: ' + error.message;
+                }
+            } else {
+                console.log('Stopping recording...');
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                isRecording = false;
+                recordBtn.classList.remove('recording');
+                recordBtn.textContent = '🎙️ Record';
+                statusDiv.className = 'status info';
+                statusDiv.textContent = 'Processing audio...';
+            }
+        }
+        
+        async function handleRecordingStop() {
+            console.log('Recording stopped. Audio chunks:', audioChunks.length);
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            console.log('Audio blob created. Size:', audioBlob.size);
+            
+            const formData = new FormData();
+            formData.append('audio', audioBlob);
+            
+            try {
+                console.log('Sending transcribe request...');
+                const response = await fetch('/transcribe/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log('Transcribe response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error('Transcription failed with status ' + response.status);
+                }
+                
+                const data = await response.json();
+                console.log('Transcription result:', data);
+                
+                if (data.success) {
+                    transcriptDiv.textContent = data.transcript;
+                    transcriptDiv.classList.remove('empty');
+                    submitBtn.disabled = false;
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = '✓ Transcription complete';
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                console.error('Transcription error:', error);
+                statusDiv.className = 'status error';
+                statusDiv.textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        async function submitToSheet() {
+            const transcript = transcriptDiv.textContent;
+            
+            if (!transcript || transcript === "Say something and it will appear here...") {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = 'No text to submit';
+                return;
+            }
+            
+            try {
+                submitBtn.disabled = true;
+                statusDiv.className = 'status info';
+                statusDiv.textContent = 'Uploading to Google Sheets...';
+                
+                const response = await fetch('/upload-to-sheet/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: transcript
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = '✓ Successfully uploaded to Google Sheets!';
+                    transcriptDiv.textContent = '';
+                    transcriptDiv.classList.add('empty');
+                    submitBtn.disabled = true;
+                } else {
+                    throw new Error(data.error || 'Upload failed');
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = 'Error: ' + error.message;
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
 </body>
 </html>
