@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Little Helper - Voice to Google Sheets</title>
+    <title>Storage Helper - Voice to Basement1</title>
     <style>
         * {
             margin: 0;
@@ -49,25 +49,6 @@
             gap: 15px;
         }
         
-        input[type="text"] {
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-        
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .button-group {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-        
         button {
             padding: 12px 24px;
             font-size: 14px;
@@ -85,18 +66,12 @@
         #recordBtn {
             background: #667eea;
             color: white;
-            grid-column: 1;
         }
         
         #recordBtn:hover:not(:disabled) {
             background: #5568d3;
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-        }
-        
-        #recordBtn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
         }
         
         #recordBtn.recording {
@@ -107,23 +82,6 @@
         @keyframes pulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
             50% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
-        }
-        
-        #submitBtn {
-            background: #27ae60;
-            color: white;
-            grid-column: 2;
-        }
-        
-        #submitBtn:hover:not(:disabled) {
-            background: #229954;
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3);
-        }
-        
-        #submitBtn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
         }
         
         .status {
@@ -170,18 +128,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎤 Little Helper</h1>
-        <p class="subtitle">Voice to Google Sheets</p>
+        <h1>🎤 Storage Helper</h1>
+        <p class="subtitle">Voice to Basement1</p>
         
         <div class="controls">
             <div class="transcript empty" id="transcript">
-                Say something and it will appear here...
+                Say: "cell A1, laptop"...
             </div>
             
-            <div class="button-group">
-                <button id="recordBtn">🎙️ Record</button>
-                <button id="submitBtn" disabled>📤 Submit</button>
-            </div>
+            <button id="recordBtn">🎙️ Record</button>
             
             <div class="status" id="status"></div>
         </div>
@@ -192,13 +147,10 @@
         let audioChunks = [];
         let isRecording = false;
         const recordBtn = document.getElementById('recordBtn');
-        const submitBtn = document.getElementById('submitBtn');
         const statusDiv = document.getElementById('status');
         const transcriptDiv = document.getElementById('transcript');
         
         recordBtn.addEventListener('click', startRecording);
-        submitBtn.addEventListener('click', submitToSheet);
-        
         console.log('Script loaded');
         
         async function startRecording() {
@@ -230,7 +182,7 @@
                 } catch (error) {
                     console.error('Microphone error:', error);
                     statusDiv.className = 'status error';
-                    statusDiv.textContent = 'Microphone access denied. Please allow access. Error: ' + error.message;
+                    statusDiv.textContent = 'Microphone access denied. Error: ' + error.message;
                 }
             } else {
                 console.log('Stopping recording...');
@@ -269,11 +221,13 @@
                 console.log('Transcription result:', data);
                 
                 if (data.success) {
-                    transcriptDiv.textContent = data.transcript;
+                    const transcript = data.transcript;
+                    transcriptDiv.textContent = transcript;
                     transcriptDiv.classList.remove('empty');
-                    submitBtn.disabled = false;
-                    statusDiv.className = 'status success';
-                    statusDiv.textContent = '✓ Transcription complete';
+                    statusDiv.className = 'status info';
+                    statusDiv.textContent = '⏳ Uploading to sheet...';
+                    
+                    await submitToSheetAuto(transcript);
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
@@ -284,20 +238,15 @@
             }
         }
         
-        async function submitToSheet() {
-            const transcript = transcriptDiv.textContent;
-            
-            if (!transcript || transcript === "Say something and it will appear here...") {
+        async function submitToSheetAuto(transcript) {
+            if (!transcript) {
                 statusDiv.className = 'status error';
                 statusDiv.textContent = 'No text to submit';
                 return;
             }
             
             try {
-                submitBtn.disabled = true;
-                statusDiv.className = 'status info';
-                statusDiv.textContent = 'Uploading to Google Sheets...';
-                
+                console.log('Uploading to sheet:', transcript);
                 const response = await fetch('/upload-to-sheet/', {
                     method: 'POST',
                     headers: {
@@ -309,20 +258,24 @@
                 });
                 
                 const data = await response.json();
+                console.log('Upload response:', data);
                 
                 if (data.success) {
                     statusDiv.className = 'status success';
-                    statusDiv.textContent = '✓ Successfully uploaded to Google Sheets!';
+                    statusDiv.textContent = `✓ Added! Cell: ${data.cell}, Keywords: ${data.keywords}`;
                     transcriptDiv.textContent = '';
                     transcriptDiv.classList.add('empty');
-                    submitBtn.disabled = true;
+                    
+                    setTimeout(() => {
+                        recordBtn.textContent = '🎙️ Record';
+                    }, 2000);
                 } else {
                     throw new Error(data.error || 'Upload failed');
                 }
             } catch (error) {
+                console.error('Upload error:', error);
                 statusDiv.className = 'status error';
-                statusDiv.textContent = 'Error: ' + error.message;
-                submitBtn.disabled = false;
+                statusDiv.textContent = 'Error uploading: ' + error.message;
             }
         }
     </script>

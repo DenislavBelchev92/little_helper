@@ -13,7 +13,7 @@ from io import BytesIO
 
 # Configuration
 GOOGLE_SHEET_ID = '1YjT7Etx4xtzvkOchAy6rWT7p17pINBLZG29lIePnoN4'
-GOOGLE_SHEET_NAME = 'Sheet1'
+GOOGLE_SHEET_NAME = 'basement1'
 
 # Get credentials path from environment or use default
 CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', os.path.join(os.path.dirname(__file__), '..', 'credentials.json'))
@@ -93,6 +93,22 @@ def upload_to_sheet(request):
                 'error': 'Missing text'
             })
         
+        # Parse the text format: "cell A1, laptop" or similar
+        # Extract cell and keywords
+        parts = [p.strip() for p in text.split(',', 1)]
+        
+        if len(parts) >= 2:
+            # Format: "cell A1, laptop"
+            cell_part = parts[0].lower()
+            keywords = parts[1]
+            
+            # Extract cell location (e.g., "A1" from "cell A1")
+            cell_location = ''.join(filter(lambda x: x.isalnum() or x in ['$'], cell_part.replace('cell', '').strip()))
+        else:
+            # If only one part, use it as keywords and empty cell
+            cell_location = ''
+            keywords = parts[0]
+        
         # Load credentials
         if not os.path.exists(CREDENTIALS_PATH):
             return JsonResponse({
@@ -110,14 +126,14 @@ def upload_to_sheet(request):
         
         # Append data to sheet
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        values = [[text, timestamp]]
+        values = [[cell_location, keywords, timestamp]]
         body = {
             'values': values
         }
         
         result = service.spreadsheets().values().append(
             spreadsheetId=GOOGLE_SHEET_ID,
-            range=f"{GOOGLE_SHEET_NAME}!A:B",
+            range=f"{GOOGLE_SHEET_NAME}!A:C",
             valueInputOption='USER_ENTERED',
             body=body
         ).execute()
@@ -125,6 +141,8 @@ def upload_to_sheet(request):
         return JsonResponse({
             'success': True,
             'message': 'Data uploaded successfully',
+            'cell': cell_location,
+            'keywords': keywords,
             'result': result.get('updates', {})
         })
         
