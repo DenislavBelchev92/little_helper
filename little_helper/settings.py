@@ -27,6 +27,7 @@ SECRET_KEY = 'django-insecure-qd(!=y7e42z-$##+)8%2x2+t9n#s3^3&a3-i%eg=oevg98=!m!
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else ['*']
+print('DEBUG: ALLOWED_HOSTS =', ALLOWED_HOSTS)
 
 
 # Application definition
