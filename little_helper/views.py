@@ -44,31 +44,38 @@ def parse_voice_input(text):
     keywords = None
     
     try:
+        # Recognize both 'keyword' and 'keywords' for the keywords field
+        keyword_variants = ['keyword', 'keywords']
         if 'storage' in lower_words:
             idx = lower_words.index('storage')
             start = idx + 1
             end = len(words)
             for i in range(start, len(words)):
-                if lower_words[i] in ['shelf', 'keywords'] or '.' in words[i]:
+                if lower_words[i] == 'shelf' or lower_words[i] in keyword_variants or '.' in words[i]:
                     end = i + (1 if '.' in words[i] else 0)
                     break
             storage_words = words[start:end]
             storage = ' '.join(word.strip(string.punctuation) for word in storage_words).strip()
-        
+
         if 'shelf' in lower_words:
             idx = lower_words.index('shelf')
             start = idx + 1
             end = len(words)
             for i in range(start, len(words)):
-                if lower_words[i] == 'keywords' or '.' in words[i]:
+                if lower_words[i] in keyword_variants or '.' in words[i]:
                     end = i + (1 if '.' in words[i] else 0)
                     break
             shelf_words = words[start:end]
             shelf = ' '.join(word.strip(string.punctuation) for word in shelf_words).strip()
-        
-        if 'keywords' in lower_words:
-            idx = lower_words.index('keywords')
-            start = idx + 1
+
+        # Find the first occurrence of either 'keyword' or 'keywords'
+        keyword_idx = None
+        for variant in keyword_variants:
+            if variant in lower_words:
+                keyword_idx = lower_words.index(variant)
+                break
+        if keyword_idx is not None:
+            start = keyword_idx + 1
             end = len(words)
             for i in range(start, len(words)):
                 if '.' in words[i]:
