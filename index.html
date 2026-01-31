@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storage Helper - Voice to Basement1</title>
+    <title>Storage Helper - Voice to Storage</title>
     <style>
         * {
             margin: 0;
@@ -129,11 +129,11 @@
 <body>
     <div class="container">
         <h1>🎤 Storage Helper</h1>
-        <p class="subtitle">Voice to Basement1</p>
+        <p class="subtitle">Voice to Storage</p>
         
         <div class="controls">
             <div class="transcript empty" id="transcript">
-                Say: "cell A1, laptop"...
+                Say: "Storage basement. Shelf A1. Keywords teddy bear."...
             </div>
             
             <button id="recordBtn">🎙️ Record</button>
@@ -261,16 +261,21 @@
                 console.log('Upload response:', data);
                 
                 if (data.success) {
+                    transcriptDiv.textContent = `Parsed: "${data.parsed_text}"`;
+                    transcriptDiv.classList.remove('empty');
                     statusDiv.className = 'status success';
-                    statusDiv.textContent = `✓ Added! Cell: ${data.cell}, Keywords: ${data.keywords}`;
-                    transcriptDiv.textContent = '';
-                    transcriptDiv.classList.add('empty');
+                    statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}`;
                     
                     setTimeout(() => {
                         recordBtn.textContent = '🎙️ Record';
                     }, 2000);
                 } else {
-                    throw new Error(data.error || 'Upload failed');
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = data.error;
+                    if (data.parsed_text) {
+                        transcriptDiv.textContent = `Parsed: "${data.parsed_text}"`;
+                        transcriptDiv.classList.remove('empty');
+                    }
                 }
             } catch (error) {
                 console.error('Upload error:', error);
