@@ -17,9 +17,19 @@ import re
 GOOGLE_SHEET_ID = '1YjT7Etx4xtzvkOchAy6rWT7p17pINBLZG29lIePnoN4'
 GOOGLE_SHEET_NAME = 'common'
 
-# Get credentials path from environment or use default
+# Get credentials
 CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', os.path.join(os.path.dirname(__file__), '..', 'credentials.json'))
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = CREDENTIALS_PATH
+GOOGLE_CREDENTIALS_JSON = os.getenv('GOOGLE_CREDENTIALS_JSON')
+
+if GOOGLE_CREDENTIALS_JSON:
+    import json
+    creds = Credentials.from_service_account_info(json.loads(GOOGLE_CREDENTIALS_JSON), scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/cloud-platform'])
+else:
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = CREDENTIALS_PATH
+    creds = Credentials.from_service_account_file(
+        CREDENTIALS_PATH,
+        scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/cloud-platform']
+    )
 
 def parse_voice_input(text):
     """
@@ -122,7 +132,7 @@ def transcribe(request):
         audio_content = audio_file.read()
         
         # Initialize Speech-to-Text client
-        client = speech_v1.SpeechClient()
+        client = speech_v1.SpeechClient(credentials=creds)
         
         # Configure audio
         audio = speech_v1.RecognitionAudio(content=audio_content)
@@ -164,7 +174,7 @@ def transcribe(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def upload_to_sheet(request):
-    """Upload transcribed text to Google Sheets"""
+    """Upload transcribed text to Google Sheets or revert last entry"""
     try:
         data = json.loads(request.body)
         text = data.get('text')
@@ -174,6 +184,11 @@ def upload_to_sheet(request):
                 'success': False,
                 'error': 'Missing text'
             })
+        
+        # Check if it's a revert command
+        words = [word.strip(string.punctuation).lower() for word in text.split()]
+        if 'revert' in words:
+            return revert_last_entry()
         
         # Parse the voice input
         parsed = parse_voice_input(text)
@@ -190,16 +205,11 @@ def upload_to_sheet(request):
         keywords = parsed['keywords']
         
         # Load credentials
-        if not os.path.exists(CREDENTIALS_PATH):
+        if not GOOGLE_CREDENTIALS_JSON and not os.path.exists(CREDENTIALS_PATH):
             return JsonResponse({
                 'success': False,
-                'error': f'Credentials file not found at {CREDENTIALS_PATH}. Please add your credentials.json file.'
+                'error': f'Credentials file not found at {CREDENTIALS_PATH}. Please add your credentials.json file or set GOOGLE_CREDENTIALS_JSON.'
             })
-        
-        creds = Credentials.from_service_account_file(
-            CREDENTIALS_PATH,
-            scopes=['https://www.googleapis.com/auth/spreadsheets']
-        )
         
         # Build Sheets API service
         service = build('sheets', 'v4', credentials=creds)
@@ -231,4 +241,56 @@ def upload_to_sheet(request):
         return JsonResponse({
             'success': False,
             'error': str(e)
+        })
+
+def revert_last_entry():
+    """Revert the last entry in the Google Sheet"""
+    try:
+        # Load credentials
+        if not GOOGLE_CREDENTIALS_JSON and not os.path.exists(CREDENTIALS_PATH):
+            return JsonResponse({
+                'success': False,
+                'error': f'Credentials file not found at {CREDENTIALS_PATH}. Please add your credentials.json file or set GOOGLE_CREDENTIALS_JSON.',
+                'parsed_text': 'revert'
+            })
+        
+        # Build Sheets API service
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Get all values to find the last row
+        result = service.spreadsheets().values().get(
+            spreadsheetId=GOOGLE_SHEET_ID,
+            range=f"{GOOGLE_SHEET_NAME}!A:Z"
+        ).execute()
+        
+        values = result.get('values', [])
+        
+        if not values or len(values) == 0:
+            return JsonResponse({
+                'success': False,
+                'error': 'No entries to revert',
+                'parsed_text': 'revert'
+            })
+        
+        # Find the last non-empty row (in case there are empty rows)
+        last_row = len(values)
+        
+        # Clear the last row
+        range_to_clear = f"{GOOGLE_SHEET_NAME}!A{last_row}:C{last_row}"
+        service.spreadsheets().values().clear(
+            spreadsheetId=GOOGLE_SHEET_ID,
+            range=range_to_clear
+        ).execute()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Last entry reverted successfully',
+            'parsed_text': 'revert'
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'parsed_text': 'revert'
         })

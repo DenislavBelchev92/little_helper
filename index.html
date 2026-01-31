@@ -133,7 +133,7 @@
         
         <div class="controls">
             <div class="transcript empty" id="transcript">
-                Say: "Storage basement. Shelf A1. Keywords teddy bear."...
+                Say: "Storage basement. Shelf A1. Keywords teddy bear." or "revert" to undo last entry.
             </div>
             
             <button id="recordBtn">🎙️ Record</button>
@@ -261,14 +261,24 @@
                 console.log('Upload response:', data);
                 
                 if (data.success) {
-                    transcriptDiv.textContent = `Parsed: "${data.parsed_text}"`;
-                    transcriptDiv.classList.remove('empty');
-                    statusDiv.className = 'status success';
-                    statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}`;
-                    
-                    setTimeout(() => {
-                        recordBtn.textContent = '🎙️ Record';
-                    }, 2000);
+                    if (data.message === 'Last entry reverted successfully') {
+                        transcriptDiv.textContent = `Reverted: "${data.parsed_text}"`;
+                        transcriptDiv.classList.remove('empty');
+                        statusDiv.className = 'status success';
+                        statusDiv.textContent = '✓ Last entry reverted successfully';
+                        setTimeout(() => {
+                            statusDiv.textContent = '';
+                        }, 3000);
+                    } else {
+                        transcriptDiv.textContent = `Parsed: "${data.parsed_text}"`;
+                        transcriptDiv.classList.remove('empty');
+                        statusDiv.className = 'status success';
+                        statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}`;
+                        
+                        setTimeout(() => {
+                            recordBtn.textContent = '🎙️ Record';
+                        }, 2000);
+                    }
                 } else {
                     statusDiv.className = 'status error';
                     statusDiv.textContent = data.error;
