@@ -300,16 +300,22 @@
                     })
                 });
                 const data = await response.json();
-                // Always patch storage, shelf, keywords from debug_matches if present
+                // Patch storage, shelf, keywords from debug_matches if present, but only update if value is not null/empty
                 if (data.debug_matches) {
                     currentParsed.debug_matches = data.debug_matches;
-                    if ('storage' in data.debug_matches) currentParsed.storage = data.debug_matches.storage;
-                    if ('shelf' in data.debug_matches) currentParsed.shelf = data.debug_matches.shelf;
-                    if ('keywords' in data.debug_matches) currentParsed.keywords = data.debug_matches.keywords;
+                    if ('storage' in data.debug_matches && data.debug_matches.storage !== null && data.debug_matches.storage !== '') {
+                        currentParsed.storage = data.debug_matches.storage;
+                    }
+                    if ('shelf' in data.debug_matches && data.debug_matches.shelf !== null && data.debug_matches.shelf !== '') {
+                        currentParsed.shelf = data.debug_matches.shelf;
+                    }
+                    if ('keywords' in data.debug_matches && data.debug_matches.keywords !== null && data.debug_matches.keywords !== '') {
+                        currentParsed.keywords = data.debug_matches.keywords;
+                    }
                 } else if (data.success) {
-                    currentParsed.storage = data.storage;
-                    currentParsed.shelf = data.shelf;
-                    currentParsed.keywords = data.keywords;
+                    if (data.storage !== null && data.storage !== '') currentParsed.storage = data.storage;
+                    if (data.shelf !== null && data.shelf !== '') currentParsed.shelf = data.shelf;
+                    if (data.keywords !== null && data.keywords !== '') currentParsed.keywords = data.keywords;
                 }
                 currentParsed.parsed_text = data.parsed_text || '';
                 updateTranscriptDisplay();

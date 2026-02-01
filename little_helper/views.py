@@ -41,22 +41,18 @@ def parse_voice_input(text):
     storage = None
     shelf = None
     keywords = None
-    # Storage: after 'storage' (optionally followed by punctuation or end), up to next keyword, punctuation, or end
-    storage_match = re.search(r'storage(?:\s+(.*?)(?=\b(shelf|keywords?)\b|[.?!,;]|$)|[.?!,;]|$)', text, re.IGNORECASE)
+    # Storage: after 'storage' up to 'shelf', 'keyword(s)', punctuation, or end
+    storage_match = re.search(r'storage\s+(.*?)(?=\b(shelf|keywords?)\b|[.?!,;]|$)', text, re.IGNORECASE)
     if storage_match:
-        # If group(1) is None, it means there was no value after 'storage', so treat as empty string
-        val = storage_match.group(1) if storage_match.lastindex and storage_match.group(1) is not None else ''
-        storage = val.strip(' .,:;\n\t') or None
+        storage = storage_match.group(1).strip(' .,:;\n\t') or None
     # Shelf: after 'shelf' (optionally followed by punctuation or end), up to next keyword, punctuation, or end
-    shelf_match = re.search(r'shelf(?:\s+(.*?)(?=\b(storage|keywords?)\b|[.?!,;]|$)|[.?!,;]|$)', text, re.IGNORECASE)
+    shelf_match = re.search(r'shelf(?:\s+|[.?!,;])?(.*?)(?=\b(storage|keywords?)\b|[.?!,;]|$)', text, re.IGNORECASE)
     if shelf_match:
-        val = shelf_match.group(1) if shelf_match.lastindex and shelf_match.group(1) is not None else ''
-        shelf = val.strip(' .,:;\n\t') or None
-    # Keywords: after 'keyword' or 'keywords' (optionally followed by punctuation or end), up to next keyword, punctuation, or end
-    keyword_match = re.search(r'key(?:word|words)(?:\s+(.*?)(?=\b(storage|shelf)\b|[.?!,;]|$)|[.?!,;]|$)', text, re.IGNORECASE)
+        shelf = shelf_match.group(1).strip(' .,:;\n\t') or None
+    # Keywords: after 'keyword' or 'keywords' up to 'storage', 'shelf', punctuation, or end
+    keyword_match = re.search(r'key(?:word|words)\s+(.*?)(?=\b(storage|shelf)\b|[.?!,;]|$)', text, re.IGNORECASE)
     if keyword_match:
-        val = keyword_match.group(1) if keyword_match.lastindex and keyword_match.group(1) is not None else ''
-        keywords = val.strip(' .,:;\n\t') or None
+        keywords = keyword_match.group(1).strip(' .,:;\n\t') or None
 
     # Add debug info for _match variables
     debug_matches = {
@@ -211,17 +207,20 @@ def upload_to_sheet(request):
         parsed = parse_voice_input(text)
         debug_matches = parsed.get('debug_matches', {})
 
-        # Only update fields if their keyword is present in the new input
-        lower_text = text.lower()
-        def field_update(field, keywords):
-            return any(kw in lower_text for kw in keywords)
-
+        # Only update a field if its _match variable is present in the new parse; otherwise, keep previous value
         merged = {
-            'storage': parsed.get('storage') if field_update('storage', ['storage']) else current_state.get('storage', ''),
-            'shelf': parsed.get('shelf') if field_update('shelf', ['shelf']) else current_state.get('shelf', ''),
-            'keywords': parsed.get('keywords') if field_update('keywords', ['keyword', 'keywords']) else current_state.get('keywords', ''),
+            'storage': current_state.get('storage', ''),
+            'shelf': current_state.get('shelf', ''),
+            'keywords': current_state.get('keywords', ''),
             'debug_matches': debug_matches
         }
+        # Only update if new value is not None and not empty string
+        if debug_matches.get('storage_match') and parsed.get('storage') not in (None, ''):
+            merged['storage'] = parsed.get('storage')
+        if debug_matches.get('shelf_match') and parsed.get('shelf') not in (None, ''):
+            merged['shelf'] = parsed.get('shelf')
+        if debug_matches.get('keyword_match') and parsed.get('keywords') not in (None, ''):
+            merged['keywords'] = parsed.get('keywords')
         merged['parsed_text'] = f"Storage {merged['storage']}. Shelf {merged['shelf']}. Keywords {merged['keywords']}"
 
         # Only check for missing/invalid fields if actually uploading
