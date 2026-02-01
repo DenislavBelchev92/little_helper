@@ -16,6 +16,8 @@ import re
 # Configuration
 GOOGLE_SHEET_ID = '1YjT7Etx4xtzvkOchAy6rWT7p17pINBLZG29lIePnoN4'
 GOOGLE_SHEET_NAME = 'common'
+# Set DEBUG to True for development, False for production
+DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 # Get credentials
 CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', os.path.join(os.path.dirname(__file__), '..', 'credentials.json'))
@@ -55,15 +57,17 @@ def parse_voice_input(text):
         keywords = keyword_match.group(1).strip(' .,:;\n\t') or None
 
     # Add debug info for _match variables
-    debug_matches = {
-        'storage_match': storage_match.group(0) if storage_match else None,
-        'shelf_match': shelf_match.group(0) if shelf_match else None,
-        'keyword_match': keyword_match.group(0) if keyword_match else None,
-        'text': text,
-        'storage': storage,
-        'shelf': shelf,
-        'keywords': keywords
-    }
+    debug_matches = None
+    if DEBUG:
+        debug_matches = {
+            'storage_match': storage_match.group(0) if storage_match else None,
+            'shelf_match': shelf_match.group(0) if shelf_match else None,
+            'keyword_match': keyword_match.group(0) if keyword_match else None,
+            'text': text,
+            'storage': storage,
+            'shelf': shelf,
+            'keywords': keywords
+        }
     
     missing = []
     invalid_values = {}
@@ -85,19 +89,23 @@ def parse_voice_input(text):
             for field, value in invalid_values.items():
                 if field == 'shelf':
                     error_parts.append(f'Invalid shelf format: "{value}". Shelf must be like A1, B5 (letter followed by number).')
-        return {
+        resp = {
             'error': ' '.join(error_parts),
-            'parsed_text': text,
-            'debug_matches': debug_matches
+            'parsed_text': text
         }
-    
-    return {
+        if DEBUG:
+            resp['debug_matches'] = debug_matches
+        return resp
+
+    resp = {
         'storage': storage,
         'shelf': shelf,
         'keywords': keywords,
-        'parsed_text': text,
-        'debug_matches': debug_matches
+        'parsed_text': text
     }
+    if DEBUG:
+        resp['debug_matches'] = debug_matches
+    return resp
 
 def index(request):
     with open('index.html', 'r') as file:
