@@ -148,6 +148,28 @@ def transcribe(request):
             sample_rate_hertz=48000,
             language_code="en-US",
             enable_automatic_punctuation=True,
+            use_enhanced=True,
+            model="latest_short",
+            max_alternatives=3,
+            alternative_language_codes=["en-GB", "en-AU", "en-CA"],
+            speech_contexts=[
+                speech_v1.SpeechContext(
+                    phrases=[
+                        "storage", "shelf", "keyword", "keywords", "revert",
+                        "terrace", "basement", "small house", "house", "Bracigovo",
+                        "barrack", "basement apartment", "basement house", "attic"
+
+                        "box", "electronics", "cables", "tools", "toys",
+                        "clothes", "books", "furniture", "kitchen", "shoes", "bags",
+                        
+                         "A0", "A1", "A2", "A3", "A4", "A5",
+                            "B0", "B1", "B2", "B3", "B4", "B5",
+                            "C0", "C1", "C2", "C3", "C4", "C5",
+                            "D0", "D1", "D2", "D3", "D4", "D5",
+                    ],
+                    boost=15.0
+                )
+            ]
         )
         
         # Perform transcription
