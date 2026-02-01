@@ -37,54 +37,37 @@ def parse_voice_input(text):
     Looks for keywords 'storage', 'shelf', 'keywords' and takes all words after each until a dot (.) or the next keyword.
     Returns dict with values or error.
     """
-    words = text.split()
-    lower_words = [word.strip(string.punctuation).lower() for word in words]
+    # Use regex to extract fields: match after keyword up to next keyword or end, non-greedy
     storage = None
     shelf = None
     keywords = None
-    
-    try:
-        # Recognize both 'keyword' and 'keywords' for the keywords field
-        keyword_variants = ['keyword', 'keywords']
-        if 'storage' in lower_words:
-            idx = lower_words.index('storage')
-            start = idx + 1
-            end = len(words)
-            for i in range(start, len(words)):
-                if lower_words[i] == 'shelf' or lower_words[i] in keyword_variants or '.' in words[i]:
-                    end = i + (1 if '.' in words[i] else 0)
-                    break
-            storage_words = words[start:end]
-            storage = ' '.join(word.strip(string.punctuation) for word in storage_words).strip()
+    # Storage: after 'storage' (optionally followed by punctuation or end), up to next keyword, punctuation, or end
+    storage_match = re.search(r'storage(?:\s+(.*?)(?=\b(shelf|keywords?)\b|[.?!,;]|$)|[.?!,;]|$)', text, re.IGNORECASE)
+    if storage_match:
+        # If group(1) is None, it means there was no value after 'storage', so treat as empty string
+        val = storage_match.group(1) if storage_match.lastindex and storage_match.group(1) is not None else ''
+        storage = val.strip(' .,:;\n\t') or None
+    # Shelf: after 'shelf' (optionally followed by punctuation or end), up to next keyword, punctuation, or end
+    shelf_match = re.search(r'shelf(?:\s+(.*?)(?=\b(storage|keywords?)\b|[.?!,;]|$)|[.?!,;]|$)', text, re.IGNORECASE)
+    if shelf_match:
+        val = shelf_match.group(1) if shelf_match.lastindex and shelf_match.group(1) is not None else ''
+        shelf = val.strip(' .,:;\n\t') or None
+    # Keywords: after 'keyword' or 'keywords' (optionally followed by punctuation or end), up to next keyword, punctuation, or end
+    keyword_match = re.search(r'key(?:word|words)(?:\s+(.*?)(?=\b(storage|shelf)\b|[.?!,;]|$)|[.?!,;]|$)', text, re.IGNORECASE)
+    if keyword_match:
+        val = keyword_match.group(1) if keyword_match.lastindex and keyword_match.group(1) is not None else ''
+        keywords = val.strip(' .,:;\n\t') or None
 
-        if 'shelf' in lower_words:
-            idx = lower_words.index('shelf')
-            start = idx + 1
-            end = len(words)
-            for i in range(start, len(words)):
-                if lower_words[i] in keyword_variants or '.' in words[i]:
-                    end = i + (1 if '.' in words[i] else 0)
-                    break
-            shelf_words = words[start:end]
-            shelf = ' '.join(word.strip(string.punctuation) for word in shelf_words).strip()
-
-        # Find the first occurrence of either 'keyword' or 'keywords'
-        keyword_idx = None
-        for variant in keyword_variants:
-            if variant in lower_words:
-                keyword_idx = lower_words.index(variant)
-                break
-        if keyword_idx is not None:
-            start = keyword_idx + 1
-            end = len(words)
-            for i in range(start, len(words)):
-                if '.' in words[i]:
-                    end = i + 1
-                    break
-            keywords_words = words[start:end]
-            keywords = ' '.join(word.strip(string.punctuation) for word in keywords_words).strip()
-    except ValueError:
-        pass
+    # Add debug info for _match variables
+    debug_matches = {
+        'storage_match': storage_match.group(0) if storage_match else None,
+        'shelf_match': shelf_match.group(0) if shelf_match else None,
+        'keyword_match': keyword_match.group(0) if keyword_match else None,
+        'text': text,
+        'storage': storage,
+        'shelf': shelf,
+        'keywords': keywords
+    }
     
     missing = []
     invalid_values = {}
@@ -108,14 +91,16 @@ def parse_voice_input(text):
                     error_parts.append(f'Invalid shelf format: "{value}". Shelf must be like A1, B5 (letter followed by number).')
         return {
             'error': ' '.join(error_parts),
-            'parsed_text': text
+            'parsed_text': text,
+            'debug_matches': debug_matches
         }
     
     return {
         'storage': storage,
         'shelf': shelf,
         'keywords': keywords,
-        'parsed_text': text
+        'parsed_text': text,
+        'debug_matches': debug_matches
     }
 
 def index(request):
@@ -203,69 +188,115 @@ def transcribe(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def upload_to_sheet(request):
-    """Upload transcribed text to Google Sheets or revert last entry"""
+    """Upload transcribed text to Google Sheets or revert last entry, or just parse and merge fields if requested."""
     try:
         data = json.loads(request.body)
         text = data.get('text')
-        
+        current_state = data.get('current_state', {})
+        do_upload = data.get('do_upload', True)
+
         if not text:
             return JsonResponse({
                 'success': False,
                 'error': 'Missing text'
             })
-        
+
         # Check if it's a revert command
         words = [word.strip(string.punctuation).lower() for word in text.split()]
         if 'revert' in words:
             return revert_last_entry()
-        
-        # Parse the voice input
+
+
+        # Parse the voice input (may be partial)
         parsed = parse_voice_input(text)
-        
-        if 'error' in parsed:
+        debug_matches = parsed.get('debug_matches', {})
+
+        # Only update fields if their keyword is present in the new input
+        lower_text = text.lower()
+        def field_update(field, keywords):
+            return any(kw in lower_text for kw in keywords)
+
+        merged = {
+            'storage': parsed.get('storage') if field_update('storage', ['storage']) else current_state.get('storage', ''),
+            'shelf': parsed.get('shelf') if field_update('shelf', ['shelf']) else current_state.get('shelf', ''),
+            'keywords': parsed.get('keywords') if field_update('keywords', ['keyword', 'keywords']) else current_state.get('keywords', ''),
+            'debug_matches': debug_matches
+        }
+        merged['parsed_text'] = f"Storage {merged['storage']}. Shelf {merged['shelf']}. Keywords {merged['keywords']}"
+
+        # Only check for missing/invalid fields if actually uploading
+        missing = []
+        invalid_values = {}
+        if do_upload:
+            if not merged['storage']:
+                missing.append('storage')
+            if not merged['shelf']:
+                missing.append('shelf')
+            elif not re.match(r'^[A-Z]\d+$', merged['shelf'].upper()):
+                invalid_values['shelf'] = merged['shelf']
+            if not merged['keywords']:
+                missing.append('keywords')
+
+            if missing or invalid_values:
+                error_parts = []
+                if missing:
+                    error_parts.append(f'Missing values for: {", ".join(missing)}.')
+                if invalid_values:
+                    for field, value in invalid_values.items():
+                        if field == 'shelf':
+                            error_parts.append(f'Invalid shelf format: "{value}". Shelf must be like A1, B5 (letter followed by number).')
+                return JsonResponse({
+                    'success': False,
+                    'error': ' '.join(error_parts),
+                    'parsed_text': merged['parsed_text'],
+                    'debug_matches': debug_matches
+                })
+
+        if not do_upload:
+            # Just return the merged result for preview
             return JsonResponse({
-                'success': False,
-                'error': parsed['error'],
-                'parsed_text': parsed['parsed_text']
+                'success': True,
+                **merged
             })
-        
-        storage = parsed['storage']
-        shelf = parsed['shelf']
-        keywords = parsed['keywords']
-        
+
+        # Otherwise, upload to sheet
+        storage = merged['storage']
+        shelf = merged['shelf']
+        keywords = merged['keywords']
+
         # Load credentials
         if not GOOGLE_CREDENTIALS_JSON and not os.path.exists(CREDENTIALS_PATH):
             return JsonResponse({
                 'success': False,
                 'error': f'Credentials file not found at {CREDENTIALS_PATH}. Please add your credentials.json file or set GOOGLE_CREDENTIALS_JSON.'
             })
-        
+
         # Build Sheets API service
         service = build('sheets', 'v4', credentials=creds)
-        
+
         # Append data to sheet
         values = [[storage, shelf, keywords]]
         body = {
             'values': values
         }
-        
+
         result = service.spreadsheets().values().append(
             spreadsheetId=GOOGLE_SHEET_ID,
             range=f"{GOOGLE_SHEET_NAME}!A:C",
             valueInputOption='USER_ENTERED',
             body=body
         ).execute()
-        
+
         return JsonResponse({
             'success': True,
             'message': 'Data uploaded successfully',
             'storage': storage,
             'shelf': shelf,
             'keywords': keywords,
-            'parsed_text': parsed['parsed_text'],
+            'parsed_text': merged['parsed_text'],
             'result': result.get('updates', {})
         })
-        
+
     except Exception as e:
         return JsonResponse({
             'success': False,

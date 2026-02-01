@@ -135,9 +135,8 @@
             <div class="transcript empty" id="transcript">
                 Say: "Storage basement. Shelf A1. Keywords teddy bear." or "revert" to undo last entry.
             </div>
-            
             <button id="recordBtn">🎙️ Record</button>
-            
+            <button id="acceptBtn" style="background:#388e3c;color:white;display:none;">✅ Accept</button>
             <div class="status" id="status"></div>
         </div>
     </div>
@@ -147,45 +146,82 @@
         let audioChunks = [];
         let isRecording = false;
         const recordBtn = document.getElementById('recordBtn');
+        const acceptBtn = document.getElementById('acceptBtn');
         const statusDiv = document.getElementById('status');
         const transcriptDiv = document.getElementById('transcript');
-        
+        let currentParsed = { storage: '', shelf: '', keywords: '', parsed_text: '' };
+        let lastTranscript = '';
+
         recordBtn.addEventListener('click', startRecording);
+        acceptBtn.addEventListener('click', acceptCurrent);
         console.log('Script loaded');
-        
+
+        function updateTranscriptDisplay() {
+            transcriptDiv.innerHTML = '';
+            // Debug: log the full currentParsed object
+            console.log('updateTranscriptDisplay currentParsed:', JSON.stringify(currentParsed, null, 2));
+            // Show last raw transcript from speech-to-text
+            if (lastTranscript && lastTranscript.trim() !== '') {
+                const rawDiv = document.createElement('div');
+                rawDiv.style.fontStyle = 'italic';
+                rawDiv.style.color = '#444';
+                rawDiv.textContent = `Audio transcript: "${lastTranscript}"`;
+                transcriptDiv.appendChild(rawDiv);
+            }
+            // Show last parsed transcript if available
+            if (currentParsed.parsed_text && currentParsed.parsed_text.trim() !== '') {
+                const parsedDiv = document.createElement('div');
+                parsedDiv.style.fontStyle = 'italic';
+                parsedDiv.style.color = '#888';
+                parsedDiv.textContent = `Last parsed: "${currentParsed.parsed_text}"`;
+                transcriptDiv.appendChild(parsedDiv);
+            }
+            // Show debug_matches if present
+            if (currentParsed.debug_matches) {
+                const debugDiv = document.createElement('div');
+                debugDiv.style.fontSize = '12px';
+                debugDiv.style.color = '#b00';
+                debugDiv.style.marginTop = '8px';
+                debugDiv.innerHTML = '<b>Debug matches:</b><br>' +
+                    Object.entries(currentParsed.debug_matches).map(([k, v]) => `${k}: <code>${v === null ? 'null' : v}</code>`).join('<br>');
+                transcriptDiv.appendChild(debugDiv);
+            }
+            const fields = [
+                { label: 'Storage', value: currentParsed.storage },
+                { label: 'Shelf', value: currentParsed.shelf },
+                { label: 'Keywords', value: currentParsed.keywords }
+            ];
+            fields.forEach(f => {
+                const div = document.createElement('div');
+                div.textContent = `${f.label}: ${f.value ? f.value : '[not set]'}`;
+                transcriptDiv.appendChild(div);
+            });
+            transcriptDiv.classList.remove('empty');
+        }
+
+        function showAcceptButton(show) {
+            acceptBtn.style.display = show ? '' : 'none';
+        }
+
         async function startRecording() {
-            console.log('startRecording called, isRecording:', isRecording);
-            
             if (!isRecording) {
                 try {
-                    console.log('Requesting microphone access...');
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    console.log('Microphone access granted');
-                    
                     mediaRecorder = new MediaRecorder(stream);
                     audioChunks = [];
-                    
-                    mediaRecorder.ondataavailable = (event) => {
-                        console.log('Audio data available:', event.data.size);
-                        audioChunks.push(event.data);
-                    };
-                    
+                    mediaRecorder.ondataavailable = (event) => { audioChunks.push(event.data); };
                     mediaRecorder.onstop = handleRecordingStop;
-                    
                     mediaRecorder.start();
                     isRecording = true;
                     recordBtn.classList.add('recording');
                     recordBtn.textContent = '🛑 Stop';
                     statusDiv.className = 'status info';
                     statusDiv.textContent = 'Recording...';
-                    console.log('Recording started');
                 } catch (error) {
-                    console.error('Microphone error:', error);
                     statusDiv.className = 'status error';
                     statusDiv.textContent = 'Microphone access denied. Error: ' + error.message;
                 }
             } else {
-                console.log('Stopping recording...');
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
                 isRecording = false;
@@ -197,102 +233,103 @@
         }
         
         async function handleRecordingStop() {
-            console.log('Recording stopped. Audio chunks:', audioChunks.length);
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            console.log('Audio blob created. Size:', audioBlob.size);
-            
             const formData = new FormData();
             formData.append('audio', audioBlob);
-            
             try {
-                console.log('Sending transcribe request...');
-                const response = await fetch('/transcribe/', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                console.log('Transcribe response status:', response.status);
-                
-                if (!response.ok) {
-                    throw new Error('Transcription failed with status ' + response.status);
-                }
-                
+                const response = await fetch('/transcribe/', { method: 'POST', body: formData });
+                if (!response.ok) throw new Error('Transcription failed with status ' + response.status);
                 const data = await response.json();
-                console.log('Transcription result:', data);
-                
                 if (data.success) {
                     const transcript = data.transcript;
-                    transcriptDiv.textContent = transcript;
-                    transcriptDiv.classList.remove('empty');
-                    statusDiv.className = 'status info';
-                    statusDiv.textContent = '⏳ Uploading to sheet...';
-                    
-                    await submitToSheetAuto(transcript);
+                    lastTranscript = transcript;
+                    await parseAndMergeTranscript(transcript);
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
             } catch (error) {
-                console.error('Transcription error:', error);
                 statusDiv.className = 'status error';
                 statusDiv.textContent = 'Error: ' + error.message;
             }
         }
         
-        async function submitToSheetAuto(transcript) {
-            if (!transcript) {
-                statusDiv.className = 'status error';
-                statusDiv.textContent = 'No text to submit';
-                return;
-            }
-            
+        async function acceptCurrent() {
             try {
-                console.log('Uploading to sheet:', transcript);
+                statusDiv.className = 'status info';
+                statusDiv.textContent = 'Uploading to sheet...';
                 const response = await fetch('/upload-to-sheet/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        text: transcript
+                        text: `Storage ${currentParsed.storage}. Shelf ${currentParsed.shelf}. Keywords ${currentParsed.keywords}`,
+                        current_state: currentParsed,
+                        do_upload: true
                     })
                 });
-                
                 const data = await response.json();
-                console.log('Upload response:', data);
-                
                 if (data.success) {
-                    if (data.message === 'Last entry reverted successfully') {
-                        transcriptDiv.textContent = `Reverted: "${data.parsed_text}"`;
-                        transcriptDiv.classList.remove('empty');
-                        statusDiv.className = 'status success';
-                        statusDiv.textContent = '✓ Last entry reverted successfully';
-                        setTimeout(() => {
-                            statusDiv.textContent = '';
-                        }, 3000);
-                    } else {
-                        transcriptDiv.textContent = `Parsed: "${data.parsed_text}"`;
-                        transcriptDiv.classList.remove('empty');
-                        statusDiv.className = 'status success';
-                        statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}`;
-                        
-                        setTimeout(() => {
-                            recordBtn.textContent = '🎙️ Record';
-                        }, 2000);
-                    }
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}`;
+                    showAcceptButton(false);
+                    currentParsed = { storage: '', shelf: '', keywords: '', parsed_text: '' };
+                    setTimeout(() => {
+                        recordBtn.textContent = '🎙️ Record';
+                        updateTranscriptDisplay();
+                    }, 2000);
                 } else {
                     statusDiv.className = 'status error';
                     statusDiv.textContent = data.error;
-                    if (data.parsed_text) {
-                        transcriptDiv.textContent = `Parsed: "${data.parsed_text}"`;
-                        transcriptDiv.classList.remove('empty');
-                    }
                 }
             } catch (error) {
-                console.error('Upload error:', error);
                 statusDiv.className = 'status error';
                 statusDiv.textContent = 'Error uploading: ' + error.message;
             }
         }
+
+        async function parseAndMergeTranscript(transcript) {
+            try {
+                statusDiv.className = 'status info';
+                statusDiv.textContent = 'Parsing...';
+                const response = await fetch('/upload-to-sheet/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: transcript,
+                        current_state: currentParsed,
+                        do_upload: false
+                    })
+                });
+                const data = await response.json();
+                // Always patch storage, shelf, keywords from debug_matches if present
+                if (data.debug_matches) {
+                    currentParsed.debug_matches = data.debug_matches;
+                    if ('storage' in data.debug_matches) currentParsed.storage = data.debug_matches.storage;
+                    if ('shelf' in data.debug_matches) currentParsed.shelf = data.debug_matches.shelf;
+                    if ('keywords' in data.debug_matches) currentParsed.keywords = data.debug_matches.keywords;
+                } else if (data.success) {
+                    currentParsed.storage = data.storage;
+                    currentParsed.shelf = data.shelf;
+                    currentParsed.keywords = data.keywords;
+                }
+                currentParsed.parsed_text = data.parsed_text || '';
+                updateTranscriptDisplay();
+                if (data.success) {
+                    showAcceptButton(true);
+                    statusDiv.className = 'status info';
+                    statusDiv.textContent = 'Ready to accept or record again.';
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = data.error;
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = 'Error parsing: ' + error.message;
+            }
+        }
+
+        // Initialize display
+        updateTranscriptDisplay();
+        showAcceptButton(false);
     </script>
 </body>
 </html>
