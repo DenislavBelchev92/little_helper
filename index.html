@@ -136,6 +136,7 @@
                 Say: "Storage basement. Shelf A1. Keywords teddy bear." or "revert" to undo last entry.
             </div>
             <button id="recordBtn">🎙️ Record</button>
+            <input type="file" id="imageInput" accept="image/*" capture="environment" style="padding:8px 0;" />
             <button id="acceptBtn" style="background:#388e3c;color:white;display:none;">✅ Accept</button>
             <div class="status" id="status"></div>
         </div>
@@ -149,6 +150,7 @@
         const acceptBtn = document.getElementById('acceptBtn');
         const statusDiv = document.getElementById('status');
         const transcriptDiv = document.getElementById('transcript');
+        const imageInput = document.getElementById('imageInput');
         let currentParsed = { storage: '', shelf: '', keywords: '', parsed_text: '' };
         let lastTranscript = '';
 
@@ -257,21 +259,36 @@
             try {
                 statusDiv.className = 'status info';
                 statusDiv.textContent = 'Uploading to sheet...';
-                const response = await fetch('/upload-to-sheet/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text: `Storage ${currentParsed.storage}. Shelf ${currentParsed.shelf}. Keywords ${currentParsed.keywords}`,
-                        current_state: currentParsed,
-                        do_upload: true
-                    })
-                });
-                const data = await response.json();
+                const imageFile = imageInput.files && imageInput.files[0] ? imageInput.files[0] : null;
+                let response, data;
+                if (imageFile) {
+                    const formData = new FormData();
+                    formData.append('text', `Storage ${currentParsed.storage}. Shelf ${currentParsed.shelf}. Keywords ${currentParsed.keywords}`);
+                    formData.append('current_state', JSON.stringify(currentParsed));
+                    formData.append('do_upload', 'true');
+                    formData.append('image', imageFile);
+                    response = await fetch('/upload-to-sheet/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    response = await fetch('/upload-to-sheet/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            text: `Storage ${currentParsed.storage}. Shelf ${currentParsed.shelf}. Keywords ${currentParsed.keywords}`,
+                            current_state: currentParsed,
+                            do_upload: true
+                        })
+                    });
+                }
+                data = await response.json();
                 if (data.success) {
                     statusDiv.className = 'status success';
-                    statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}`;
+                    statusDiv.textContent = `✓ Added! Storage: ${data.storage}, Shelf: ${data.shelf}, Keywords: ${data.keywords}` + (data.picture_url ? `, Picture: ${data.picture_url}` : '');
                     showAcceptButton(false);
                     currentParsed = { storage: '', shelf: '', keywords: '', parsed_text: '' };
+                    imageInput.value = '';
                     setTimeout(() => {
                         recordBtn.textContent = '🎙️ Record';
                         updateTranscriptDisplay();

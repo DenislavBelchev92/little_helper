@@ -136,7 +136,7 @@ def transcribe(request):
             encoding=speech_v1.RecognitionConfig.AudioEncoding.WEBM_OPUS,
             sample_rate_hertz=48000,
             language_code="en-US",
-            enable_automatic_punctuation=True,
+            enable_automatic_punctuation=False,
             use_enhanced=True,
             model="latest_short",
             max_alternatives=3,
@@ -192,12 +192,20 @@ def transcribe(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def upload_to_sheet(request):
-    """Upload transcribed text to Google Sheets or revert last entry, or just parse and merge fields if requested."""
+    """Upload transcribed text to Google Sheets or revert last entry, or just parse and merge fields if requested. Optionally upload an image to the 'picture' cell."""
     try:
-        data = json.loads(request.body)
-        text = data.get('text')
-        current_state = data.get('current_state', {})
-        do_upload = data.get('do_upload', True)
+        # Support both JSON and multipart/form-data
+        if request.content_type and request.content_type.startswith('multipart/'):
+            text = request.POST.get('text')
+            current_state = json.loads(request.POST.get('current_state', '{}'))
+            do_upload = request.POST.get('do_upload', 'true').lower() in ('true', '1', 'yes')
+            image_file = request.FILES.get('image')
+        else:
+            data = json.loads(request.body)
+            text = data.get('text')
+            current_state = data.get('current_state', {})
+            do_upload = data.get('do_upload', True)
+            image_file = None
 
         if not text:
             return JsonResponse({
@@ -209,7 +217,6 @@ def upload_to_sheet(request):
         words = [word.strip(string.punctuation).lower() for word in text.split()]
         if 'revert' in words:
             return revert_last_entry()
-
 
         # Parse the voice input (may be partial)
         parsed = parse_voice_input(text)
@@ -232,6 +239,7 @@ def upload_to_sheet(request):
         merged['parsed_text'] = f"Storage {merged['storage']}. Shelf {merged['shelf']}. Keywords {merged['keywords']}"
 
         # Only check for missing/invalid fields if actually uploading
+
         missing = []
         invalid_values = {}
         if do_upload:
@@ -270,6 +278,21 @@ def upload_to_sheet(request):
         storage = merged['storage']
         shelf = merged['shelf']
         keywords = merged['keywords']
+        picture_url = ''
+
+        # If image is present, upload to Imgur and get URL
+        if image_file:
+            import requests
+            IMGUR_CLIENT_ID = os.getenv('IMGUR_CLIENT_ID')
+            if not IMGUR_CLIENT_ID:
+                return JsonResponse({'success': False, 'error': 'IMGUR_CLIENT_ID not set in environment.'})
+            img_data = image_file.read()
+            headers = {'Authorization': f'Client-ID {IMGUR_CLIENT_ID}'}
+            response = requests.post('https://api.imgur.com/3/image', headers=headers, files={'image': img_data})
+            if response.status_code == 200:
+                picture_url = response.json()['data']['link']
+            else:
+                return JsonResponse({'success': False, 'error': 'Image upload failed: ' + response.text})
 
         # Load credentials
         if not GOOGLE_CREDENTIALS_JSON and not os.path.exists(CREDENTIALS_PATH):
@@ -281,15 +304,15 @@ def upload_to_sheet(request):
         # Build Sheets API service
         service = build('sheets', 'v4', credentials=creds)
 
-        # Append data to sheet
-        values = [[storage, shelf, keywords]]
+        # Append data to sheet, now with picture_url as 4th column
+        values = [[storage, shelf, keywords, picture_url]]
         body = {
             'values': values
         }
 
         result = service.spreadsheets().values().append(
             spreadsheetId=GOOGLE_SHEET_ID,
-            range=f"{GOOGLE_SHEET_NAME}!A:C",
+            range=f"{GOOGLE_SHEET_NAME}!A:D",
             valueInputOption='USER_ENTERED',
             body=body
         ).execute()
@@ -300,6 +323,7 @@ def upload_to_sheet(request):
             'storage': storage,
             'shelf': shelf,
             'keywords': keywords,
+            'picture_url': picture_url,
             'parsed_text': merged['parsed_text'],
             'result': result.get('updates', {})
         })
