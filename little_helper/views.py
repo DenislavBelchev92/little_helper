@@ -274,23 +274,30 @@ def upload_to_sheet(request):
                 **merged
             })
 
+
         # Otherwise, upload to sheet
         storage = merged['storage']
         shelf = merged['shelf']
         keywords = merged['keywords']
         picture_url = ''
 
-        # If image is present, upload to Imgur and get URL
+        # If image is present, upload to imgbb and get URL, then wrap in IMAGE formula
         if image_file:
             import requests
-            IMGUR_CLIENT_ID = os.getenv('IMGUR_CLIENT_ID')
-            if not IMGUR_CLIENT_ID:
-                return JsonResponse({'success': False, 'error': 'IMGUR_CLIENT_ID not set in environment.'})
+            IMGBB_API_KEY = os.getenv('IMGBB_API_KEY')
+            if not IMGBB_API_KEY:
+                return JsonResponse({'success': False, 'error': 'IMGBB_API_KEY not set in environment.'})
             img_data = image_file.read()
-            headers = {'Authorization': f'Client-ID {IMGUR_CLIENT_ID}'}
-            response = requests.post('https://api.imgur.com/3/image', headers=headers, files={'image': img_data})
+            import base64
+            encoded_image = base64.b64encode(img_data).decode('utf-8')
+            payload = {
+                'key': IMGBB_API_KEY,
+                'image': encoded_image
+            }
+            response = requests.post('https://api.imgbb.com/1/upload', data=payload)
             if response.status_code == 200:
-                picture_url = response.json()['data']['link']
+                image_url = response.json()['data']['url']
+                picture_url = f'=IMAGE("{image_url}")'
             else:
                 return JsonResponse({'success': False, 'error': 'Image upload failed: ' + response.text})
 
